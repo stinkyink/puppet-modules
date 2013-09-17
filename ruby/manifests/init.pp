@@ -145,7 +145,7 @@ class ruby::ruby2($system_default = true)  {
     exec { "update-alternatives-ruby2.0":
       path => "/usr/sbin",
       command => "update-alternatives --set ruby /usr/bin/ruby2.0 && update-alternatives --set gem /usr/bin/gem2.0 && update-alternatives --set bundle /usr/local/bin/bundle2.0",
-      require => [Package["ruby"], Package["ruby2.0"], Exec["ruby2.0-install-bundler"]]
+      require => [Package["ruby"], Package["ruby2.0"], Exec["bundle2.0-alternatives"]]
     }
   }
 }
