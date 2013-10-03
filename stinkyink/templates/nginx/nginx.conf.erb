@@ -1,0 +1,47 @@
+# File Managed by Puppet
+user <%= scope.lookupvar('nginx::process_user') %>;
+worker_processes <%= @processorcount %>;
+
+error_log  <%= scope.lookupvar('nginx::log_dir')%>/error.log;
+pid        <%= scope.lookupvar('nginx::pid_file')%>;
+
+events {
+  worker_connections <%= scope.lookupvar('nginx::worker_connections')%>;
+  # <% if scope.lookupvar('nginx::nx_multi_accept') == 'on' %>multi_accept on;<% end %>
+}
+
+http {
+  server_tokens off;
+  include       <%= scope.lookupvar('nginx::config_dir')%>/mime.types;
+  default_type  application/octet-stream;
+
+  log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+  access_log  <%= scope.lookupvar('nginx::log_dir')%>/access.log;
+
+  sendfile    on;
+  tcp_nopush  on;
+  tcp_nodelay off;
+  client_max_body_size <%= scope.lookupvar('nginx::client_max_body_size')%>;
+  keepalive_timeout  <%= scope.lookupvar('nginx::keepalive_timeout')%>;
+
+  gzip         <%= scope.lookupvar('nginx::real_gzip')%>;
+  gzip_disable "MSIE [1-6]\.(?!.*SV1)";
+
+  gzip_vary on;
+  gzip_proxied any;
+  gzip_comp_level 6;
+  gzip_buffers 16 8k;
+  gzip_http_version 1.0;
+  gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
+
+  map $scheme $server_https {
+      default off;
+      https on;
+  }
+
+  include /etc/nginx/conf.d/*.conf;
+  include <%= scope.lookupvar('nginx::vdir')%>/*.conf;
+}

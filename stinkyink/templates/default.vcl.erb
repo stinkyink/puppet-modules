@@ -1,0 +1,117 @@
+#
+# Managed by Puppet. Do not edit.
+#
+
+# Create a list of backend servers, those with role::app applied.
+<%- scope.function_options_lookup(['backend_hosts', []]).each_with_index do |host, index| -%>
+backend unicorn<%= index %> {
+  .host = "<%= host %>";
+  .connect_timeout = 6s;
+  .port = "9000";
+
+  # Ask the Rails app for it's status.
+  .probe = {
+    .url = "/status";
+    .timeout = 100ms;
+    .interval = 1s;
+    .window = 10;
+    .threshold = 8;
+  }
+}
+<%- end -%>
+
+director cl0 random {
+<%- scope.function_options_lookup(['backend_hosts', []]).each_with_index do |host, index| -%>
+  { .backend = unicorn<%= index %>; .weight = 1; }
+<%- end -%>
+}
+
+acl admin {
+  "127.0.0.1";
+}
+
+sub vcl_recv {
+  set req.backend = cl0;
+
+  if (req.request != "GET" &&
+      req.request != "HEAD" &&
+      req.request != "PUT" &&
+      req.request != "POST" &&
+      req.request != "TRACE" &&
+      req.request != "OPTIONS" &&
+      req.request != "PURGE" &&
+      req.request != "BAN" &&
+      req.request != "DELETE") {
+    # Non-RFC2616 or CONNECT which is weird.
+    return (pipe);
+  }
+
+# Pass requests that Varnish shouldn't handle.
+  if (req.request != "HEAD"  && req.request != "GET" && req.request != "PURGE" && req.request != "BAN") {
+    return (pass);
+  }
+
+  if (req.request == "PURGE" && !client.ip ~ admin) {
+    error 401 "You can't do that!";
+  }
+
+  if (req.backend.healthy) {
+    set req.grace = 30s;
+  } else {
+    set req.grace = 1h;
+  }
+
+# Forward IP addresses.
+  set req.http.X-Forwarded-For = client.ip;
+
+  if (req.http.Cache-Control ~ "no-cache") {
+    return(pass);
+  }
+
+# We only pass requests that we want to cache to Varnish, remove all cookies.
+  unset req.http.cookie;
+
+# The site only serves in English, so cache it for all languages.
+  remove req.http.Accept-Language;
+
+  return (lookup);
+}
+
+sub vcl_fetch {
+  if (beresp.status == 500) {
+    set beresp.saintmode = 10s;
+    return(restart);
+  }
+
+  remove beresp.http.Set-Cookie;
+
+  set beresp.grace = 1h;
+
+  return (deliver);
+}
+
+sub vcl_hit {
+  if (req.request == "PURGE") {
+    purge;
+    error 200 "Purged";
+  }
+}
+
+sub vcl_miss {
+  if (req.request == "PURGE") {
+    purge;
+    error 404 "Not in cache";
+  }
+}
+
+sub vcl_pass {
+  if (req.request == "PURGE") {
+    error 502 "PURGE on a passed object";
+  }
+}
+
+sub vcl_hash {
+  if(req.http.X-Device ~ "^mobile") {
+    hash_data(req.http.X-Device);
+  }
+}
